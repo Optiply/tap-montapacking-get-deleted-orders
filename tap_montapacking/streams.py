@@ -999,7 +999,7 @@ class DeletedOrdersStream(MontapackingStream):
     name = "deleted_orders"
     primary_keys = ["WebshopOrderId"]
     replication_key = "SyncedAt"
-    records_jsonpath = "$.[*]"
+    records_jsonpath = "$.Orders[*].Order"
     paginate = False  # check whether this endpoint pages
     schema = {
         **OrdersStream.schema,
@@ -1036,8 +1036,7 @@ class DeletedOrdersStream(MontapackingStream):
             data = response.json()
         except ValueError:
             return
-        if isinstance(data, list):
-            yield from data
+        yield from extract_jsonpath(self.records_jsonpath, input=data)
 
     def post_process(self, row: dict, context: Optional[dict]) -> dict:
         row["SyncedAt"] = self.sync_started_at.isoformat()
