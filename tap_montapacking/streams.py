@@ -992,3 +992,53 @@ class ProductsDetailsStream(MontapackingStream):
         th.Property("ExcludeFromStockForecast", th.BooleanType),
         th.Property("LeadTime", th.IntegerType)
     ).to_dict()
+
+
+class DeletedOrdersStream(MontapackingStream):
+    """Orders deleted in Monta: GET /order/updated_since/{datetime}?status=Deleted."""
+    name = "deleted_orders"
+    primary_keys = ["WebshopOrderId"]
+    replication_key = "SyncedAt"
+    records_jsonpath = "$.[*]"
+    paginate = False  # check whether this endpoint pages
+    schema = {
+        **OrdersStream.schema,
+        "properties": {
+            **OrdersStream.schema["properties"],
+            "SyncedAt": th.DateTimeType.type_dict,
+        },
+    }
+
+    @cached_property
+    def sync_started_at(self) -> datetime:
+        return datetime.now(pytz.utc)
+
+    @cached_property
+    def path(self) -> str:
+        # 5-min buffer so the date is strictly inside Monta's 7-day limit
+        max_lookback = self.sync_started_at - timedelta(days=7) + timedelta(minutes=5)
+        since = self.stream_state.get("replication_key_value")
+        since = parse(since) if since else max_lookback
+        since = max(since, max_lookback)
+        since_local = since.astimezone(pytz.timezone("Europe/Amsterdam"))
+        return f"/order/updated_since/{since_local.strftime('%Y-%m-%dT%H:%M:%S')}"
+
+    def get_url_params(self, context, next_page_token) -> Dict[str, Any]:
+        params: dict = {"status": "Deleted"}
+        if next_page_token:
+            params["page"] = next_page_token
+        return params
+
+    def parse_response(self, response: requests.Response) -> Iterable[dict]:
+        if response.status_code == 404:  # "nothing found"
+            return
+        try:
+            data = response.json()
+        except ValueError:
+            return
+        if isinstance(data, list):
+            yield from data
+
+    def post_process(self, row: dict, context: Optional[dict]) -> dict:
+        row["SyncedAt"] = self.sync_started_at.isoformat()
+        return row
