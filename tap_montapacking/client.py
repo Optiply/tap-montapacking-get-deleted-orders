@@ -241,6 +241,7 @@ class MontapackingStream(RESTStream):
             # Before first sync is done, skip the incremental streams
             or (self.name in ("product_events", "products_details") and (not products_initial_sync_done or not sync_products))
             or (self.name in ("inboundforecast_events", "inboundforecastgroup_since_id") and (not forecast_initial_sync_done or not sync_buy_orders))
+            or (self.name == "deleted_orders" and not sync_sell_orders)
         ):
             self.logger.info(f"Skipping stream: {self.name}")
             #pass
